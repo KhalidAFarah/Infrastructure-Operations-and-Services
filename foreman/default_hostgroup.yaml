@@ -1,0 +1,8 @@
+:default_hostgroup:
+  :facts_map:
+    "Default":
+      "hostname": ".*"
+    "puppetserver":
+      "hostname": "foremanmaster"
+#    "puppetagents":
+#      "hostname": "foreman-agent-.*\.openstacklocal"
