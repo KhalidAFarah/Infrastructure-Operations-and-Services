@@ -1,0 +1,18 @@
+type: CheckConfig
+api_version: core/v2
+metadata:
+  name: sensu-go-memory-check
+  namespace: default
+spec:
+  command: sensu-go-memory-check
+  runtime_assets:
+    - asachs01/sensu-go-memory-check
+  interval: 60
+  publish: true
+  output_metric_format: nagios_perfdata
+  output_metric_handlers:
+    - influxdb
+  handlers:
+    - slack
+  subscriptions:
+    - system

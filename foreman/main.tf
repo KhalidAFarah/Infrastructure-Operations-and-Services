@@ -12,7 +12,7 @@
 # }
 
 module "puppetmaster" {
-  source          = "./puppetmaster"
+  source          = "../modules/puppetmaster"
   # chosen_provider = openstack.os
 
   name          = "foreman_master"
@@ -34,7 +34,7 @@ module "puppetmaster" {
 }
 
 module "puppetagent" {
-  source          = "./puppetagent"
+  source          = "../modules/puppetagent"
   # chosen_provider = openstack.os
 
   name                = "foreman_agent"

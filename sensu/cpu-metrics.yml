@@ -1,0 +1,16 @@
+type: CheckConfig
+metadata:
+  namespace: default
+  name: metrics-cpu
+spec:
+  command: metrics-cpu.rb
+  handlers: []
+  high_flap_threshold: 0
+  interval: 10
+  low_flap_threshold: 0
+  publish: true
+  runtime_assets:
+    - cpu-checks-plugins
+    - sensu-ruby-runtime
+  subscriptions:
+    - system
