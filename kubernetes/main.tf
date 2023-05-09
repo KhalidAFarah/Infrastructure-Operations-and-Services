@@ -19,7 +19,7 @@ module "puppetmaster" {
 
   name          = "foreman_master"
   image_name    = "ubuntu-20.04"
-  flavor_name   = "b2.c4r8"
+  flavor_name   = "l2.c4r8.100"
   key_pair_name = "Controller key"
   network_name  = "public"
   security_groups = [ "default" ]
@@ -46,19 +46,19 @@ module "puppetagent" {
   chosen_provider = "safespring"
 
   name                = "foreman_agent"
-  number_of_instances = 3
+  number_of_instances = 4
   image_name          = "ubuntu-20.04"
-  flavor_name         = "b2.c2r4"
+  flavor_name         = "l2.c2r4.100"
   key_pair_name       = "Controller key"
   network_name        = "default"
-  volume_size = 10
+  volume_size = 50
   security_groups = [ "default" ]
 
   user              = "ubuntu"
   private_key       = file("~/.ssh/id_rsa")
   puppetmaster_ip   = module.puppetmaster.puppetmaster_ip
   puppetmaster_name = module.puppetmaster.puppetmaster_name
-  runinterval       = "15m"
+  runinterval       = "5m"
 
   worker_node_private_key = openstack_compute_keypair_v2.worker_nodes_ssh_key_pair.private_key
   worker_node_public_key = openstack_compute_keypair_v2.worker_nodes_ssh_key_pair.public_key

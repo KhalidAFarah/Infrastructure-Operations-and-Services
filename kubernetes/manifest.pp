@@ -3,6 +3,9 @@ node 'www.foremanmaster.openstacklocal' {
   include docker
   include kubernetes
   include kubernetes::controller
+  include kubernetes::controller::ceph
+  include kubernetes::controller::elk
+  include kubernetes::controller::prometheus
 
   exec { "sign_all":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
@@ -18,7 +21,8 @@ node default {
   include kubernetes::worker
 }
 
-
+#https://computingforgeeks.com/deploy-kubernetes-cluster-on-ubuntu-with-kubeadm/
+#https://computingforgeeks.com/install-mirantis-cri-dockerd-as-docker-engine-shim-for-kubernetes/
 class kubernetes { 
   require Class['docker']
   package { ["curl", "apt-transport-https", "wget", "git"]:
@@ -47,19 +51,19 @@ class kubernetes {
     unless => "dpkg -l kubelet",
     require => Exec['adding_to_source_list'],
   }
-  exec { "installing_kubeadm":
-    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
-    user => "ubuntu",
-    command => "sudo apt-get -y update && sudo apt-get -y install kubeadm && sudo apt-mark hold kubeadm",
-    unless => "dpkg -l kubeadm",
-    require => Exec['adding_to_source_list'],
-  }
   exec { "installing_kubectl":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
     command => "sudo apt-get -y update && sudo apt-get -y install kubectl && sudo apt-mark hold kubectl",
     unless => "dpkg -l kubectl",
-    require => Exec['adding_to_source_list'],
+    require => Exec['adding_to_source_list', 'installing_kubelet'],
+  }
+  exec { "installing_kubeadm":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo apt-get -y update && sudo apt-get -y install kubeadm && sudo apt-mark hold kubeadm",
+    unless => "dpkg -l kubeadm",
+    require => Exec['adding_to_source_list', 'installing_kubectl'],
   }
 
   exec { "disable_swap":
@@ -156,6 +160,7 @@ class kubernetes {
   }
 }
 
+#https://computingforgeeks.com/deploy-kubernetes-cluster-on-ubuntu-with-kubeadm/
 class kubernetes::controller {
   require Class['kubernetes']
 
@@ -180,21 +185,52 @@ class kubernetes::controller {
     require => Exec['kubeadm_start'],
   }
 
-  exec { "setup_calico_network":
+  exec { "install_flannel_network":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
-    command => "kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.1/manifests/tigera-operator.yaml && kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.1/manifests/custom-resources.yaml",
+    command => "sudo -u ubuntu wget https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml",
     require => Exec['setup_kubectl'],
-    unless => "sudo -u ubuntu kubectl get namespaces | grep -q calico-apiserver && sudo -u ubuntu kubectl get namespaces | grep -q calico-system && sudo -u ubuntu kubectl get namespaces | grep -q tigera-operator"
+    unless => "sudo -u ubuntu kubectl get pods -n kube-flannel | grep -q 'kube-flannel'"
   }
+  exec { "configure_flannel_network":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo sed -i 's/10.244.0.0/192.168.0.0/g' /home/ubuntu/kube-flannel.yml",
+    require => Exec['install_flannel_network'],
+    unless => "sudo -u ubuntu kubectl get pods -n kube-flannel | grep -q 'kube-flannel'"
+  }
+  exec { "run_flannel_network":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/kube-flannel.yml",
+    require => Exec['configure_flannel_network'],
+    unless => "sudo -u ubuntu kubectl get pods -n kube-flannel | grep -q 'kube-flannel'"
+  }
+
+  # exec { "setup_calico_network":
+  #   path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+  #   user => "ubuntu",
+  #   command => "kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.1/manifests/tigera-operator.yaml && kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.1/manifests/custom-resources.yaml",
+  #   require => Exec['setup_kubectl'],
+  #   unless => "sudo -u ubuntu kubectl get namespaces | grep -q calico-apiserver && sudo -u ubuntu kubectl get namespaces | grep -q calico-system && sudo -u ubuntu kubectl get namespaces | grep -q tigera-operator"
+  # }
 
   # exec { "save_join_token":
   #   path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
   #   command => "sudo kubeadm token create --print-join-command > ",
   #   require => Exec['setup_kubectl'],
   # }
+  
+  exec { "install_helm":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo snap install helm --classic",
+    require => Exec['run_flannel_network'],
+    unless => "dpkg -l helm",
+  }
 }
 
+#https://computingforgeeks.com/deploy-kubernetes-cluster-on-ubuntu-with-kubeadm/
 class kubernetes::worker {
   require Class['kubernetes']
 
@@ -260,3 +296,205 @@ class kubernetes::worker {
   #   manage_etcd => true,
   #   etcd_version => "3.5.0", 
   # }
+
+#kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- bash
+#https://computingforgeeks.com/how-to-deploy-rook-ceph-storage-on-kubernetes-cluster/
+class kubernetes::controller::ceph {
+  require Class['kubernetes::controller']
+
+  exec { "install_ceph_git":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu git clone --single-branch --branch release-1.11 https://github.com/rook/rook.git",
+    require => Exec['run_flannel_network'],#Exec['setup_calico_network'],
+    unless => "sudo ls /home/ubuntu/rook",
+  }
+
+  exec { "create_crds":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/rook/deploy/examples/crds.yaml",
+    unless => "sudo -u ubuntu kubectl get crds | grep -q 'cephblockpoolradosnamespaces.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephblockpools.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephbucketnotifications.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephbuckettopics.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephclients.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephclusters.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephfilesystemmirrors.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephfilesystems.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephfilesystemsubvolumegroups.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephnfses.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephobjectrealms.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephobjectstores.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephobjectstoreusers.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephobjectzonegroups.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephobjectzones.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'cephrbdmirrors.ceph.rook.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'objectbucketclaims.objectbucket.io' && \
+      sudo -u ubuntu kubectl get crds | grep -q 'objectbuckets.objectbucket.io'",
+    require => Exec['install_ceph_git'],
+  }
+  exec { "create_common":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/rook/deploy/examples/common.yaml",
+    unless => "sudo -u ubuntu kubectl get ns rook-ceph",
+    require => Exec['create_crds'],
+  }
+  exec { "create_operator":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/rook/deploy/examples/operator.yaml",
+    unless => "sudo -u ubuntu kubectl get all -n rook-ceph | grep -q 'pod/rook-ceph-operator' && \
+      sudo -u ubuntu kubectl get all -n rook-ceph | grep -q 'deployment.apps/rook-ceph-operator' && \
+      sudo -u ubuntu kubectl get all -n rook-ceph | grep -q 'replicaset.apps/rook-ceph-operator'",
+    require => Exec['create_common'],
+  }
+  exec { "create_cluster":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -n rook-ceph -f /home/ubuntu/rook/deploy/examples/cluster.yaml",
+    unless => "sudo -u ubuntu kubectl -n rook-ceph get cephcluster | grep -q rook-ceph",
+    require => Exec['create_operator'],
+  }
+
+  exec { "create_ceph_toolbox":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -n rook-ceph -f /home/ubuntu/rook/deploy/examples/toolbox.yaml",
+    unless => "sudo -u ubuntu kubectl -n rook-ceph get deployment rook-ceph-tools",
+    require => Exec['create_cluster'],
+  }
+}
+
+#https://computingforgeeks.com/setup-prometheus-and-grafana-on-kubernetes/
+class kubernetes::controller::prometheus {
+  require Class['kubernetes::controller']
+
+  exec { "install_prometheus_git":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu git clone https://github.com/prometheus-operator/kube-prometheus.git",
+    require => Exec['run_flannel_network'],#Exec['setup_calico_network'],
+    unless => "sudo ls /home/ubuntu/kube-prometheus",
+  }
+
+  exec { "setup_prometheus_operator":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/kube-prometheus/manifests/setup",
+    unless => "sudo -u ubuntu kubectl get ns monitoring",
+    require => Exec['install_prometheus_git'],
+  }
+  exec { "run_prometheus_operator":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/kube-prometheus/manifests",
+    unless => "sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'prometheus-operator' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'prometheus-operated' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'prometheus-k8s' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'prometheus-adapter' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'node-exporter' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'kube-state-metrics' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'grafana' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'blackbox-exporter' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'alertmanager-operated' && \
+     sudo -u ubuntu kubectl get svc -n monitoring | grep -q 'alertmanager-main'",
+    require => Exec['setup_prometheus_operator'],
+  }
+
+  exec { "show_grafana_dashboard":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl expose deployment -n monitoring grafana --port=3000 --target-port=3000 --name=grafana-external --external-ip=puppetmasterip",
+    require => Exec['run_prometheus_operator'],
+    unless => "sudo -u ubuntu kubectl get svc -n monitoring grafana-external",
+  }
+}
+
+
+#0.13.9
+
+#https://www.youtube.com/watch?v=vtSUlcN4Kfg
+class kubernetes::controller::elk {
+  require Class['kubernetes::controller::ceph']
+
+  exec { "install_storage_class":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl create -f /home/ubuntu/ELK/storageclass.yaml",
+    require => Exec['create_ceph_toolbox'],
+    unless => "sudo -u ubuntu kubectl get storageclasses standard",
+  }
+
+  exec { "install_filebeat":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu helm install filebeat /home/ubuntu/ELK/filebeat",
+    require => Exec['install_helm'],
+    unless => "sudo -u ubuntu kubectl get pods | grep -q 'filebeat'",
+  }
+  exec { "install_logstash":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu helm install logstash /home/ubuntu/ELK/logstash",
+    require => Exec['install_helm'],
+    unless => "sudo -u ubuntu kubectl get svc logstash-logstash",
+  }
+  exec { "install_elasticsearch":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu helm install elasticsearch /home/ubuntu/ELK/elasticsearch",
+    require => Exec['install_helm'],
+    unless => "sudo -u ubuntu kubectl get svc elasticsearch-master",
+  }
+  exec { "install_kibana":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "kubectl wait --for=condition=Ready service/elasticsearch-master && sudo -u ubuntu helm install kibana /home/ubuntu/ELK/kibana",
+    require => Exec['install_elasticsearch'],
+    unless => "sudo -u ubuntu kubectl get svc kibana-kibana",
+  }
+  exec { "show_kibana_dashboard":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl expose deployment kibana-kibana --port=5601 --target-port=5601 --name=kibana-kibana-external --external-ip=puppetmasterip",
+    require => Exec['install_kibana'],
+    unless => "sudo -u ubuntu kubectl get svc kibana-kibana-external",
+  }
+}
+
+
+class kubernetes::controller::backup {
+  require Class['kubernetes::controller']
+
+  exec { "add_kasten_repo":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu helm repo add kasten https://charts.kasten.io/",
+    require => Exec['install_helm'],
+    unless => "sudo -u ubuntu helm repo list | grep -q 'kasten'",
+  }
+  exec { "install_kasten_repo":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu helm install my-k10 kasten/k10 --version 5.5.10",
+    require => Exec['add_kasten_repo'],
+    unless => "sudo -u ubuntu kubectl get deployment my-k10-grafana",
+  }
+
+  exec { "show_kasten_dashboard":
+    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+    user => "ubuntu",
+    command => "sudo -u ubuntu kubectl expose deployment kasten --port=8080 --target-port=8080 --name=kasten-external --external-ip=puppetmasterip",
+    require => Exec['run_prometheus_operator'],
+    unless => "sudo -u ubuntu kubectl get svc --external",
+  }
+}
+
+#0.5.1
+#0.20.0
+#0.1.0
+
+#2842
+

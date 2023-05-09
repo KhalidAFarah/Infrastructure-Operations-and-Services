@@ -18,12 +18,12 @@ data "openstack_compute_keypair_v2" "laptop" {
   name = "KF-Laptop-key"
 }
 
-resource "openstack_blockstorage_volume_v3" "volume" {
-  name = "${var.name}-volume-${count.index}"
-  size = var.volume_size
-  count = var.number_of_instances
-  image_id = data.openstack_images_image_v2.image.id
-}
+# resource "openstack_blockstorage_volume_v3" "volume" {
+#   name = "${var.name}-volume-${count.index}"
+#   size = var.volume_size
+#   count = var.number_of_instances
+#   image_id = data.openstack_images_image_v2.image.id
+# }
 
 resource "openstack_blockstorage_volume_v3" "ceph_volume" {
   name = "ceph-volume-${count.index}"
@@ -52,11 +52,6 @@ resource "openstack_compute_instance_v2" "puppetagent" {
     host        = self.access_ip_v4
   }
 
-  # provisioner "file" {
-  #   source      = "./logstash.conf"
-  #   destination = "./logstash.conf"
-  # }
-
   provisioner "remote-exec" {
     inline = [
       "sleep 20",
@@ -74,58 +69,31 @@ resource "openstack_compute_instance_v2" "puppetagent" {
       "sudo bash -c 'echo -e \"${self.access_ip_v4} www.${self.name}.openstacklocal ${self.name}\" >> /etc/hosts'",
       "sudo systemctl start puppet",
       "sudo /opt/puppetlabs/puppet/bin/puppet agent",
-    #   "echo 'done'"
-    # "sudo apt-get -y update && sudo apt-get -y install default-jre",
-    # "sudo apt-get -y update && sudo apt-get -y install default-jdk",
-    # "curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch |sudo gpg --dearmor -o /usr/share/keyrings/elastic.gpg",
-    # "echo \"deb [signed-by=/usr/share/keyrings/elastic.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main\" | sudo tee -a /etc/apt/sources.list.d/elastic-7.x.list",
-
-    # "sudo apt -y update && sudo apt -y install logstash",
-    # "sudo mv /home/ubuntu/logstash.conf /etc/logstash/conf.d/logstash.conf",
-    # "sudo sed -i 's/localhost:9200/${var.puppetmaster_ip}:9200/g' /etc/logstash/conf.d/logstash.conf",
-    # "sudo -u logstash /usr/share/logstash/bin/logstash --path.settings /etc/logstash -t",
-    # "sudo systemctl start logstash",
-    # "sudo systemctl enable logstash",
-
-    # "sudo apt -y update && sudo apt -y install filebeat",
-    # "sudo sed -i \"s/output.elasticsearch:/#output.elasticsearch:/g\" /etc/filebeat/filebeat.yml",
-    # "sudo sed -i 's/hosts: \\[\"localhost:9200\"\\]/#hosts: \\[\"localhost:9200\"\\]/g' /etc/filebeat/filebeat.yml",
-    # "sudo sed -i \"s/#output.logstash:/output.logstash:/g\" /etc/filebeat/filebeat.yml",
-    # "sudo sed -i 's/#hosts: \\[\"localhost:5044\"\\]/hosts: \\[\"localhost:5044\"\\]/g' /etc/filebeat/filebeat.yml",
-    # "sudo filebeat modules enable system",
-    # "sudo filebeat setup --pipelines --modules system",
-    # "sudo filebeat setup --index-management -E output.logstash.enabled=false -E 'output.elasticsearch.hosts=[\"localhost:9200\"]'",
-    # "sudo filebeat setup -E output.logstash.enabled=false -E output.elasticsearch.hosts=['localhost:9200'] -E setup.kibana.host=localhost:5601",
-    # "sudo systemctl start filebeat",
-    # "sudo systemctl enable filebeat",
-
-    # "sudo apt -y update && sudo apt -y install metricbeat",
-    # "sudo sed -i 's/output.elasticsearch:/#output.elasticsearch:/g' /etc/metricbeat/metricbeat.yml",
-    # "sudo sed -i 's/hosts: [\"localhost:9200\"]/#hosts: [\"localhost:9200\"]/g' /etc/metricbeat/metricbeat.yml",
-    # "sudo sed -i 's/#output.logstash:/output.logstash:/g' /etc/metricbeat/metricbeat.yml",
-    # "sudo sed -i 's/#hosts: [\"localhost:5044\"]/hosts: [\"localhost:5044\"]/g' /etc/metricbeat/metricbeat.yml",
-    # "sudo metricbeat modules enable system",
-    # "sudo metricbeat setup --index-management -E output.logstash.enabled=false -E 'output.elasticsearch.hosts=[\"localhost:9200\"]'",
-    # "sudo metricbeat setup -E output.logstash.enabled=false -E output.elasticsearch.hosts=['localhost:9200'] -E setup.kibana.host=localhost:5601",
-    # "sudo systemctl start metricbeat",
-    # "sudo systemctl enable metricbeat",
     ]
   }
   
-  block_device {
-    uuid =  openstack_blockstorage_volume_v3.volume[count.index].id
-    source_type = "volume"
-    destination_type = "volume"
-    boot_index = 0
-    delete_on_termination = true
-    volume_size = var.volume_size
-  }
-  block_device {
-    uuid =  openstack_blockstorage_volume_v3.ceph_volume[count.index].id
-    source_type = "volume"
-    destination_type = "volume"
-    boot_index = -1
-    delete_on_termination = true
-    volume_size = 40
-  }
+  # block_device {
+  #   uuid =  openstack_blockstorage_volume_v3.volume[count.index].id
+  #   source_type = "volume"
+  #   destination_type = "volume"
+  #   boot_index = 0
+  #   delete_on_termination = true
+  #   volume_size = var.volume_size
+  # }
+  # block_device {
+  #   uuid =  openstack_blockstorage_volume_v3.ceph_volume[count.index].id
+  #   source_type = "volume"
+  #   destination_type = "volume"
+  #   # boot_index = 1
+  #   delete_on_termination = true
+  #   volume_size = 40
+  # }
+}
+
+resource "openstack_compute_volume_attach_v2" "name" {
+  instance_id = openstack_compute_instance_v2.puppetagent[count.index].id
+  volume_id = openstack_blockstorage_volume_v3.ceph_volume[count.index].id
+  # delete_on_termination = true
+  count = var.number_of_instances
+  
 }
