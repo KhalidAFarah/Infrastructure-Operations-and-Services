@@ -14,9 +14,9 @@ data "openstack_images_image_v2" "image" {
   provider = openstack
 }
 
-data "openstack_compute_keypair_v2" "laptop" {
-  name = "KF-Laptop-key"
-}
+# data "openstack_compute_keypair_v2" "laptop" {
+#   name = "KF-Laptop-key"
+# }
 
 # resource "openstack_blockstorage_volume_v3" "volume" {
 #   name = "${var.name}-volume-${count.index}"
@@ -55,7 +55,7 @@ resource "openstack_compute_instance_v2" "puppetagent" {
   provisioner "remote-exec" {
     inline = [
       "sleep 20",
-      "echo \"${data.openstack_compute_keypair_v2.laptop.public_key}\" >> ~/.ssh/authorized_keys",
+      # "echo \"${data.openstack_compute_keypair_v2.laptop.public_key}\" >> ~/.ssh/authorized_keys",
       "echo \"${var.worker_node_private_key}\" >> .ssh/id_rsa",
       "chmod 700 .ssh/id_rsa",
       "echo \"${var.worker_node_public_key}\" >> .ssh/id_rsa.pub",

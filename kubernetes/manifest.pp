@@ -6,12 +6,13 @@ node 'www.foremanmaster.openstacklocal' {
   include kubernetes::controller::ceph
   include kubernetes::controller::elk
   include kubernetes::controller::prometheus
+  include kubernetes::controller::backup
 
-  exec { "sign_all":
-    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
-    command => "sudo /opt/puppetlabs/bin/puppetserver ca sign --all",
-    unless => "sudo /opt/puppetlabs/bin/puppetserver ca list | grep -q 'No certificates to list'",
-  }
+  # exec { "sign_all":
+  #   path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+  #   command => "sudo /opt/puppetlabs/bin/puppetserver ca sign --all",
+  #   unless => "sudo /opt/puppetlabs/bin/puppetserver ca list | grep -q 'No certificates to list'",
+  # }
 }
 
 node default {
@@ -406,7 +407,7 @@ class kubernetes::controller::prometheus {
   exec { "show_grafana_dashboard":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
-    command => "sudo -u ubuntu kubectl expose deployment -n monitoring grafana --port=3000 --target-port=3000 --name=grafana-external --external-ip=puppetmasterip",
+    command => "sudo -u ubuntu kubectl expose service grafana --name=grafana-external -n monitoring --type=NodePort --port=3000 --target-port=3000 --external-ip=puppetmasterip",
     require => Exec['run_prometheus_operator'],
     unless => "sudo -u ubuntu kubectl get svc -n monitoring grafana-external",
   }
@@ -451,14 +452,15 @@ class kubernetes::controller::elk {
   exec { "install_kibana":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
-    command => "kubectl wait --for=condition=Ready service/elasticsearch-master && sudo -u ubuntu helm install kibana /home/ubuntu/ELK/kibana",
+    command => "kubectl wait --for=condition=Ready --timeout=60m statefulset/elasticsearch-master && sudo -u ubuntu helm install kibana /home/ubuntu/ELK/kibana&",
     require => Exec['install_elasticsearch'],
     unless => "sudo -u ubuntu kubectl get svc kibana-kibana",
+    timeout => 900,
   }
   exec { "show_kibana_dashboard":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
-    command => "sudo -u ubuntu kubectl expose deployment kibana-kibana --port=5601 --target-port=5601 --name=kibana-kibana-external --external-ip=puppetmasterip",
+    command => "kubectl wait --for=condition=Ready --timeout=65m service/kibana-kibana && sudo -u ubuntu kubectl expose service kibana-kibana --name=kibana-external --type=NodePort --port=5601 --target-port=5601 --external-ip=puppetmasterip&",
     require => Exec['install_kibana'],
     unless => "sudo -u ubuntu kubectl get svc kibana-kibana-external",
   }
@@ -468,33 +470,31 @@ class kubernetes::controller::elk {
 class kubernetes::controller::backup {
   require Class['kubernetes::controller']
 
-  exec { "add_kasten_repo":
+  # exec { "add_kasten_repo":
+  #   path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
+  #   user => "ubuntu",
+  #   command => "sudo -u ubuntu helm repo add kasten https://charts.kasten.io/",
+  #   require => Exec['install_helm'],
+  #   unless => "sudo -u ubuntu helm repo list | grep -q 'kasten'",
+  # }
+  exec { "install_kasten":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
-    command => "sudo -u ubuntu helm repo add kasten https://charts.kasten.io/",
+    command => "sudo -u ubuntu helm install my-k10 /home/ubuntu/backup/k10 --namespace=backup --create-namespace",
     require => Exec['install_helm'],
-    unless => "sudo -u ubuntu helm repo list | grep -q 'kasten'",
-  }
-  exec { "install_kasten_repo":
-    path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
-    user => "ubuntu",
-    command => "sudo -u ubuntu helm install my-k10 kasten/k10 --version 5.5.10",
-    require => Exec['add_kasten_repo'],
     unless => "sudo -u ubuntu kubectl get deployment my-k10-grafana",
   }
 
   exec { "show_kasten_dashboard":
     path => "/usr/bin/:/usr/sbin/:/usr/local/bin:/bin/:/sbin",
     user => "ubuntu",
-    command => "sudo -u ubuntu kubectl expose deployment kasten --port=8080 --target-port=8080 --name=kasten-external --external-ip=puppetmasterip",
+    command => "sudo -u ubuntu kubectl expose -n backup service/gateway --port=8000 --target-port=8080 --name=kasten-external --external-ip=puppetmasterip",
     require => Exec['run_prometheus_operator'],
-    unless => "sudo -u ubuntu kubectl get svc --external",
+    unless => "sudo -u ubuntu kubectl get svc kasten-external",
   }
 }
 
 #0.5.1
 #0.20.0
 #0.1.0
-
-#2842
 

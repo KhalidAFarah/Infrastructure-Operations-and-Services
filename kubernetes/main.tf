@@ -46,9 +46,9 @@ module "puppetagent" {
   chosen_provider = "safespring"
 
   name                = "foreman_agent"
-  number_of_instances = 4
+  number_of_instances = 3
   image_name          = "ubuntu-20.04"
-  flavor_name         = "l2.c2r4.100"
+  flavor_name         = "l2.c4r8.100"
   key_pair_name       = "Controller key"
   network_name        = "default"
   volume_size = 50

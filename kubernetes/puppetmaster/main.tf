@@ -13,9 +13,9 @@ provider "openstack" {
 data "openstack_images_image_v2" "image" {
   name = var.image_name
 }
-data "openstack_compute_keypair_v2" "laptop" {
-  name = "KF-Laptop-key"
-}
+# data "openstack_compute_keypair_v2" "laptop" {
+#   name = "KF-Laptop-key"
+# }
 
 # resource "openstack_blockstorage_volume_v3" "volume" {
 #   name = "${var.name}-volume"
@@ -59,11 +59,15 @@ resource "openstack_compute_instance_v2" "foreman_puppetmaster" {
     source      = "./ELK"
     destination = "./ELK"
   }
+  provisioner "file" {
+    source      = "./backup"
+    destination = "./backup"
+  }
 
   provisioner "remote-exec" {
     inline = [
       "sleep 20",
-      "echo \"${data.openstack_compute_keypair_v2.laptop.public_key}\" >> .ssh/authorized_keys",
+      # "echo \"${data.openstack_compute_keypair_v2.laptop.public_key}\" >> .ssh/authorized_keys",
       "echo \"${var.worker_node_public_key}\" >> .ssh/authorized_keys",
       "sudo apt update -y",
       "sudo hostnamectl set-hostname www.${replace(self.name, "_", "")}.openstacklocal",
