@@ -254,3 +254,68 @@ output "puppetagent_webservers_ip" {
 # output "puppetagent_backupservers_ip" {
 #   value = module.puppetagent_backup.puppetagents_ip
 # }
+
+#-------------------------- script on backup -------------------------- 
+# terraform {
+#   required_providers {
+#     openstack = {
+#       source = "terraform-provider-openstack/openstack"
+#     }
+#   }
+# }
+# provider "openstack" {
+#   cloud = "alto"
+#   alias = "al"
+# }
+# provider "openstack" {
+#   cloud = "safespring"
+#   alias = "safe"
+# }
+
+# variable "puppetmaster_ip" {
+#   type = string
+# }
+
+# module "backup_securitygroup" {
+#   source = "./securitygroup"
+#   chosen_provider = "alto"
+#   name = "backup server securitygroup"
+#   description = "The security group for the backup servers"
+#   rules = {
+#     "ssh" = {
+#       "ip_protocol" = "tcp"
+#       "to_port" = "22"
+#       "from_port" = "22"
+#       "ethertype" = "IPv4"
+#       "cidr" = "0.0.0.0/0"
+#     }
+#   }
+# }
+# module "puppetagent_backup" {
+#   source          = "./puppetagent"
+#   chosen_provider = "alto"
+
+#   name                = "backup"
+#   number_of_instances = 1
+#   image_name          = "Ubuntu-20.04-LTS"
+#   flavor_name         = "m1.small"
+#   key_pair_name       = "controller"
+#   network_name        = "netsys_net"
+#   security_groups = [ "backup server securitygroup" ]
+
+#   user              = "ubuntu"
+#   private_key       = file("~/.ssh/id_rsa")
+#   puppetmaster_ip   = var.puppetmaster_ip#data.openstack_compute_instance_v2.name.access_ip_v4 #module.puppetmaster.puppetmaster_ip
+#   puppetmaster_name = "puppetmaster"#data.openstack_compute_instance_v2.name.name #module.puppetmaster.puppetmaster_name
+#   runinterval       = "1m"
+
+#   delete_volume_on_termination = true
+#   volume_size = 10
+# }
+
+# output "puppetagent_backupservers_ip" {
+#   value = module.puppetagent_backup.puppetagents_ip
+# }
+# output "puppetagent_test" {
+#   value = var.puppetmaster_ip
+# }
